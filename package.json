@@ -1,0 +1,20 @@
+{
+  "name": "yopflix-downloader-bun",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts",
+    "download": "bun run index.ts download",
+    "search": "bun run index.ts search",
+    "info": "bun run index.ts info",
+    "list": "bun run index.ts list",
+    "help": "bun run index.ts help"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
