@@ -19,6 +19,16 @@ import { mkdir } from "node:fs/promises"
  * Default (no subcommand): behaves like "download" (for backward compatibility)
  */
 
+// Plugin directory (local to repo; override with YTDLP_PLUGIN_DIRS)
+const REPO_PLUGIN_DIR = path.join(process.cwd(), "plugins")
+function getPluginDirsFlag(): string[] {
+	const fromEnv = process.env.YTDLP_PLUGIN_DIRS
+	if (fromEnv && fromEnv.length > 0) {
+		return ["--plugin-dirs", fromEnv]
+	}
+	return ["--plugin-dirs", REPO_PLUGIN_DIR]
+}
+
 // Types for remote API
 interface SearchResultTitle {
   id: number
@@ -206,7 +216,17 @@ async function runYtDlp(url: string, outputFile: string): Promise<void> {
   const outDir = path.dirname(outputFile)
   await mkdir(outDir, { recursive: true })
   const proc = Bun.spawn(
-    ["yt-dlp", "-o", outputFile, "--no-part", "--restrict-filenames", "--merge-output-format", "mp4", url],
+    [
+      "yt-dlp",
+      ...getPluginDirsFlag(),
+      "-o",
+      outputFile,
+      "--no-part",
+      "--restrict-filenames",
+      "--merge-output-format",
+      "mp4",
+      url,
+    ],
     { stdio: ["inherit", "inherit", "inherit"] }
   )
   const code = await proc.exited
@@ -376,7 +396,6 @@ async function main() {
         printHelp()
         break
       default:
-        // If first token looks like a flag, assume default 'download'
         if (command.startsWith("--")) {
           await cmdDownload([command, ...argsv])
         } else {

@@ -44,6 +44,25 @@ bun run list -- --titleId 3235
 bun run download -- --titleId 3235 --season 1
 ```
 
+## Local yt-dlp plugins
+
+- This repo ships a local plugin directory at `plugins/`. We copy the xfileshare extractor here:
+  - `plugins/xfileshare/yt_dlp_plugins/extractor/xfileshare.py`
+- The downloader passes `--plugin-dirs` to yt-dlp pointing at the repo `plugins/` directory by default.
+- You can override plugin directories with env var `YTDLP_PLUGIN_DIRS`.
+
+Example:
+
+```bash
+# Use repo plugins (default)
+bun run index.ts list --titleId 3235
+
+# Override plugin dirs with env var (colon-separated if multiple)
+YTDLP_PLUGIN_DIRS="/etc/yt-dlp/plugins:/custom/yt-dlp-plugins" bun run index.ts download --titleId 3235
+```
+
+Docs: See Installing Plugins for yt-dlp: [altctrlreturn.com](https://altctrlreturn.com/docs/plugins/installing-plugins-for-yt-dlp)
+
 ### Notes
 - The script fetches JSON from `https://yopflix.my/secure/search/...` and `https://yopflix.my/secure/titles/...` and extracts `uqload` embed links.
 - Downloads use `yt-dlp` and produce Jellyfin-friendly names: `Show Name/Season 01/Show Name - S01E01.mp4`.
