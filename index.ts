@@ -22,11 +22,33 @@ import { mkdir } from "node:fs/promises"
 // Plugin directory (local to repo; override with YTDLP_PLUGIN_DIRS)
 const REPO_PLUGIN_DIR = path.join(process.cwd(), "plugins")
 function getPluginDirsFlag(): string[] {
-	const fromEnv = process.env.YTDLP_PLUGIN_DIRS
-	if (fromEnv && fromEnv.length > 0) {
-		return ["--plugin-dirs", fromEnv]
-	}
-	return ["--plugin-dirs", REPO_PLUGIN_DIR]
+  const fromEnv = process.env.YTDLP_PLUGIN_DIRS
+  if (fromEnv && fromEnv.length > 0) {
+    return ["--plugin-dirs", fromEnv]
+  }
+  return ["--plugin-dirs", REPO_PLUGIN_DIR]
+}
+
+// Resolve yt-dlp binary with fallback and env override
+async function resolveYtDlpBinary(): Promise<string> {
+  const override = process.env.YTDLP_BIN
+  if (override && override.length > 0) return override
+  const candidate = await findExecutable(["yt-dlp", "yt-dlp_linux"]) // try normal, then linux build
+  if (candidate) return candidate
+  throw new Error("Could not find yt-dlp executable (tried: yt-dlp, yt-dlp_linux). Set YTDLP_BIN to override.")
+}
+
+async function findExecutable(names: string[]): Promise<string | null> {
+  for (const name of names) {
+    try {
+      const proc = Bun.spawn([name, "--version"], { stdio: ["ignore", "pipe", "pipe"] })
+      const code = await proc.exited
+      if (code === 0) return name
+    } catch {
+      // ignore and continue
+    }
+  }
+  return null
 }
 
 // Types for remote API
@@ -215,9 +237,10 @@ async function ensureDirForFile(filePath: string): Promise<void> {
 async function runYtDlp(url: string, outputFile: string): Promise<void> {
   const outDir = path.dirname(outputFile)
   await mkdir(outDir, { recursive: true })
+  const bin = await resolveYtDlpBinary()
   const proc = Bun.spawn(
     [
-      "yt-dlp",
+      bin,
       ...getPluginDirsFlag(),
       "-o",
       outputFile,
@@ -231,7 +254,7 @@ async function runYtDlp(url: string, outputFile: string): Promise<void> {
   )
   const code = await proc.exited
   if (code !== 0) {
-    throw new Error(`yt-dlp exited with code ${code} for ${url}`)
+    throw new Error(`${bin} exited with code ${code} for ${url}`)
   }
 }
 
