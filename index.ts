@@ -33,7 +33,7 @@ function getPluginDirsFlag(): string[] {
 async function resolveYtDlpBinary(): Promise<string> {
   const override = process.env.YTDLP_BIN
   if (override && override.length > 0) return override
-  const candidate = await findExecutable(["yt-dlp", "yt-dlp_linux"]) // try normal, then linux build
+  const candidate = await findExecutable(["yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"]) // try normal, then linux build
   if (candidate) return candidate
   throw new Error("Could not find yt-dlp executable (tried: yt-dlp, yt-dlp_linux). Set YTDLP_BIN to override.")
 }
