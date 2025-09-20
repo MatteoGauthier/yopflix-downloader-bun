@@ -7,7 +7,7 @@
 // - Outputs Jellyfin-friendly filenames
 
 import path from "node:path"
-import { mkdir } from "node:fs/promises"
+import { mkdir, stat } from "node:fs/promises"
 
 /**
  * Subcommands
@@ -33,7 +33,7 @@ function getPluginDirsFlag(): string[] {
 async function resolveYtDlpBinary(): Promise<string> {
   const override = process.env.YTDLP_BIN
   if (override && override.length > 0) return override
-  const candidate = await findExecutable(["yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"]) // try normal, then linux build
+  const candidate = await findExecutable(["yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"]) // try common names
   if (candidate) return candidate
   throw new Error("Could not find yt-dlp executable (tried: yt-dlp, yt-dlp_linux). Set YTDLP_BIN to override.")
 }
@@ -234,28 +234,65 @@ async function ensureDirForFile(filePath: string): Promise<void> {
   await mkdir(dir, { recursive: true })
 }
 
-async function runYtDlp(url: string, outputFile: string): Promise<void> {
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const s = await stat(filePath)
+    return s.isFile() && s.size > 0
+  } catch {
+    return false
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms))
+}
+
+async function runYtDlp(url: string, outputFile: string, opts?: { noOverwrite?: boolean; noContinue?: boolean }): Promise<void> {
   const outDir = path.dirname(outputFile)
   await mkdir(outDir, { recursive: true })
   const bin = await resolveYtDlpBinary()
-  const proc = Bun.spawn(
-    [
-      bin,
-      ...getPluginDirsFlag(),
-      "-o",
-      outputFile,
-      "--no-part",
-      "--restrict-filenames",
-      "--merge-output-format",
-      "mp4",
-      url,
-    ],
-    { stdio: ["inherit", "inherit", "inherit"] }
-  )
+  const args = [
+    bin,
+    ...getPluginDirsFlag(),
+    "-o",
+    outputFile,
+    "--merge-output-format",
+    "mp4",
+    url,
+  ]
+  if (opts?.noOverwrite) args.splice(3, 0, "--no-overwrites")
+  if (opts?.noContinue) args.push("--no-continue")
+  args.push("--no-part", "--restrict-filenames")
+
+  const proc = Bun.spawn(args, { stdio: ["inherit", "inherit", "inherit"] })
   const code = await proc.exited
   if (code !== 0) {
     throw new Error(`${bin} exited with code ${code} for ${url}`)
   }
+}
+
+async function downloadWithRetries(url: string, outputFile: string, attempts = 3): Promise<boolean> {
+  const exists = await fileExists(outputFile)
+  if (exists) {
+    console.log(`Skipping existing file: ${outputFile}`)
+    return true
+  }
+
+  let lastError: unknown
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      // On first try, disable continue to avoid 416; also avoid overwriting
+      await runYtDlp(url, outputFile, { noOverwrite: true, noContinue: true })
+      return true
+    } catch (err) {
+      lastError = err
+      const delayMs = 5000 * Math.pow(2, i)
+      console.warn(`Download failed (attempt ${i + 1}/${attempts}): ${err instanceof Error ? err.message : String(err)}. Retrying in ${Math.round(delayMs / 1000)}s...`)
+      await sleep(delayMs)
+    }
+  }
+  console.error(`Giving up after ${attempts} attempts for ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
+  return false
 }
 
 // Subcommand implementations
@@ -371,15 +408,25 @@ async function cmdDownload(argsv: string[]) {
 
   console.log(`Queued ${filtered.length} video(s) from ${showName}`)
 
+  const failures: Array<{ name: string; url: string; error: string }> = []
+
   for (const v of filtered) {
     const episodeExt = "mp4"
     const outputPath = buildOutputPath(outDir, showName!, v.season, v.episode, episodeExt)
     await ensureDirForFile(outputPath)
     console.log(`Downloading: ${v.name} -> ${outputPath}`)
-    await runYtDlp(v.url, outputPath)
+    const ok = await downloadWithRetries(v.url, outputPath, 3)
+    if (!ok) {
+      failures.push({ name: v.name, url: v.url, error: "download failed after retries" })
+    }
   }
 
-  console.log("All downloads completed.")
+  if (failures.length > 0) {
+    console.warn(`Completed with ${failures.length} failure(s):`)
+    for (const f of failures) console.warn(`- ${f.name} :: ${f.url} :: ${f.error}`)
+  } else {
+    console.log("All downloads completed.")
+  }
 }
 
 function printHelp() {

@@ -48,7 +48,7 @@ class XFileShareIE(InfoExtractor):
         (r'holavid\.com', 'HolaVid'),
         (r'streamty\.com', 'Streamty'),
         (r'thevideobee\.to', 'TheVideoBee'),
-        (r'uqload\.cx', 'Uqload'),
+        (r'uqload\.[a-z\.]+', 'Uqload'),
         (r'vidbom\.com', 'VidBom'),
         (r'vidlo\.us', 'vidlo'),
         (r'vidlocker\.xyz', 'VidLocker'),
