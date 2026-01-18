@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(bun run:*)",
+      "Bash(curl:*)",
+      "Bash(yt-dlp:*)",
+      "Bash(python3:*)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
