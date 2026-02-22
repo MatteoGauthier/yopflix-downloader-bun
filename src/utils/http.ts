@@ -1,9 +1,11 @@
 // HTTP helpers
 
-export async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string, extraHeaders?: Record<string, string>): Promise<T> {
   const res = await fetch(url, {
     headers: {
       accept: "application/json, text/plain, */*",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      ...extraHeaders,
     },
   })
   if (!res.ok) {
