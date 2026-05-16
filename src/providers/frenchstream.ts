@@ -1,13 +1,13 @@
-// French Stream (fs02.lol) provider implementation
+// French Stream provider implementation
 
 import type { Provider } from "./base.ts"
 import type { Title, TitleDetails, Episode } from "../types.ts"
 import { fetchHtml, getJson, postForm } from "../utils/http.ts"
 
-const BASE_URL = "https://fs02.lol"
+const BASE_URL = "https://fs03.lol"
 
 // Preferred player order (first available wins)
-const PLAYER_ORDER = ["uqload", "vidzy", "voe", "netu"] as const
+const PLAYER_ORDER = ["uqload", "vidzy", "voe", "netu", "premium"] as const
 type PlayerKey = (typeof PLAYER_ORDER)[number]
 
 interface EpPlayerMap {
@@ -15,6 +15,7 @@ interface EpPlayerMap {
   vidzy?: string
   netu?: string
   voe?: string
+  premium?: string
 }
 
 interface EpDataResponse {

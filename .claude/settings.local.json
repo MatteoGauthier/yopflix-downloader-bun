@@ -8,7 +8,13 @@
       "Bash(curl:*)",
       "Bash(yt-dlp:*)",
       "Bash(python3:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Skill(agent-browser)",
+      "Bash(agent-browser skills *)",
+      "Bash(agent-browser open *)",
+      "Bash(agent-browser wait *)",
+      "Bash(agent-browser screenshot *)",
+      "Bash(agent-browser eval *)"
     ]
   }
 }
