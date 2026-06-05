@@ -19,7 +19,7 @@ function getPluginDirsFlag(): string[] {
 async function findExecutable(names: string[]): Promise<string | null> {
   for (const name of names) {
     try {
-      const proc = Bun.spawn([name, "-version"], { stdio: ["ignore", "pipe", "pipe"] })
+      const proc = Bun.spawn([name, "--version"], { stdio: ["ignore", "pipe", "pipe"] })
       const code = await proc.exited
       if (code === 0) return name
     } catch {
@@ -79,7 +79,19 @@ async function remuxToMp4(inputFile: string): Promise<void> {
 export async function resolveYtDlpBinary(): Promise<string> {
   const override = process.env.YTDLP_BIN
   if (override && override.length > 0) return override
-  const candidate = await findExecutable(["yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"])
+
+  const baseNames = ["yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"]
+  const fromEnvPath = process.env.PATH?.split(":") ?? []
+  const misePaths = [
+    `${process.env.HOME}/.local/share/mise/shims`,
+    `${process.env.HOME}/.local/share/mise/installs/yt-dlp/latest`,
+  ]
+  const searchDirs = [...fromEnvPath, ...misePaths]
+  const candidates = [
+    ...baseNames,
+    ...searchDirs.flatMap((dir) => baseNames.map((n) => `${dir}/${n}`)),
+  ]
+  const candidate = await findExecutable(candidates)
   if (candidate) return candidate
   throw new Error("Could not find yt-dlp executable (tried: yt-dlp, yt-dlp_linux). Set YTDLP_BIN to override.")
 }
