@@ -4,7 +4,7 @@ import type { Provider } from "./base.ts"
 import type { Title, TitleDetails, Episode } from "../types.ts"
 import { fetchHtml, getJson, postForm } from "../utils/http.ts"
 
-const BASE_URL = "https://fs03.lol"
+const BASE_URL = "https://fs02.lol"
 
 // Preferred player order (first available wins)
 const PLAYER_ORDER = ["uqload", "vidzy", "voe", "netu", "premium"] as const
@@ -22,6 +22,16 @@ interface EpDataResponse {
   vf?: Record<string, EpPlayerMap>
   vostfr?: Record<string, EpPlayerMap>
   vo?: Record<string, EpPlayerMap>
+}
+
+interface FilmPlayerEntry {
+  default?: string
+  vfq?: string
+  vostfr?: string
+}
+
+interface FilmApiResponse {
+  players?: Record<string, FilmPlayerEntry>
 }
 
 export class FrenchStreamProvider implements Provider {
@@ -46,6 +56,12 @@ export class FrenchStreamProvider implements Provider {
     let episodes: Episode[] = []
     if (newsId) {
       episodes = await this.fetchEpisodes(newsId, seasonNumber, path)
+    }
+    if (episodes.length === 0 && newsId) {
+      episodes = await this.fetchMoviePlayers(newsId, path)
+    }
+    if (episodes.length === 0) {
+      episodes = this.parseMoviePlayers(html)
     }
 
     return this.parseMediaPage(html, path, episodes)
@@ -114,6 +130,79 @@ export class FrenchStreamProvider implements Provider {
 
     episodes.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0))
     return episodes
+  }
+
+  private async fetchMoviePlayers(newsId: string, refererPath: string): Promise<Episode[]> {
+    const referer = `${BASE_URL}${refererPath.startsWith("/") ? refererPath : `/${refererPath}`}`
+    const data = await getJson<FilmApiResponse>(`${BASE_URL}/engine/ajax/film_api.php?id=${newsId}`, { referer })
+
+    const url = this.pickFilmPlayerUrl(data.players ?? {})
+    if (!url) return []
+
+    return [{ id: "movie-vf", name: "VF", url, language: "vf" }]
+  }
+
+  private pickFilmPlayerUrl(players: Record<string, FilmPlayerEntry>): string | null {
+    for (const key of PLAYER_ORDER) {
+      const entry = players[key]
+      if (!entry) continue
+      const url = entry.vfq ?? entry.default
+      if (url && url.length > 0) return url
+    }
+    return null
+  }
+
+  private parseMoviePlayers(html: string): Episode[] {
+    const optionRegex =
+      /<div[^>]*class=['"]option['"][^>]*data-url=['"]([^'"]+)['"][^>]*>(?:<span[^>]*>([^<]*)<\/span>)?/gi
+
+    const episodes: Episode[] = []
+    let match
+    while ((match = optionRegex.exec(html)) !== null) {
+      const url = match[1]
+      const label = (match[2] ?? "").trim()
+      if (!url) continue
+
+      const lower = label.toLowerCase()
+      let language: Episode["language"]
+      if (lower.includes("vostfr") || lower.includes("vost")) language = "vostfr"
+      else if (lower.includes("french") || lower.includes("vf")) language = "vf"
+      else if (lower.includes("vo")) language = "vo"
+
+      const host = (() => {
+        try {
+          return new URL(url).hostname
+        } catch {
+          return ""
+        }
+      })()
+
+      episodes.push({
+        id: `movie-${host}-${episodes.length + 1}`,
+        name: label || "Movie",
+        url,
+        language,
+      })
+    }
+
+    if (episodes.length === 0) return episodes
+
+    const preferred = this.pickUrlByHostOrder(episodes)
+    return preferred ? [preferred] : episodes
+  }
+
+  private pickUrlByHostOrder(episodes: Episode[]): Episode | null {
+    for (const key of PLAYER_ORDER) {
+      const match = episodes.find((ep) => {
+        try {
+          return new URL(ep.url).hostname.includes(key)
+        } catch {
+          return false
+        }
+      })
+      if (match) return match
+    }
+    return episodes[0] ?? null
   }
 
   private pickPlayerUrl(players: EpPlayerMap): string | null {

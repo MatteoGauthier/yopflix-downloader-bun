@@ -2,9 +2,11 @@
 
 import path from "node:path"
 import { mkdir, stat } from "node:fs/promises"
+import { isUqloadEmbed as isUqloadEmbedUrl, resolveUqloadEmbed } from "./uqload.ts"
+import { isVidzyEmbed, resolveVidzyEmbed } from "./vidzy.ts"
 
 // Plugin directory (local to repo; override with YTDLP_PLUGIN_DIRS)
-const REPO_PLUGIN_DIR = path.join(process.cwd(), "plugins")
+const REPO_PLUGIN_DIR = path.join(process.cwd(), "plugins", "xfileshare")
 
 function getPluginDirsFlag(): string[] {
   const fromEnv = process.env.YTDLP_PLUGIN_DIRS
@@ -17,7 +19,7 @@ function getPluginDirsFlag(): string[] {
 async function findExecutable(names: string[]): Promise<string | null> {
   for (const name of names) {
     try {
-      const proc = Bun.spawn([name, "--version"], { stdio: ["ignore", "pipe", "pipe"] })
+      const proc = Bun.spawn([name, "-version"], { stdio: ["ignore", "pipe", "pipe"] })
       const code = await proc.exited
       if (code === 0) return name
     } catch {
@@ -25,6 +27,53 @@ async function findExecutable(names: string[]): Promise<string | null> {
     }
   }
   return null
+}
+
+async function resolveFfmpegBinary(): Promise<string | null> {
+  const override = process.env.FFMPEG_BIN
+  if (override && override.length > 0) return override
+
+  const fromEnvPath = process.env.PATH?.split(":") ?? []
+  const candidates = [
+    "ffmpeg",
+    ...fromEnvPath.flatMap((dir) => [`${dir}/ffmpeg`]),
+  ]
+  return findExecutable(candidates)
+}
+
+function isHlsUrl(url: string): boolean {
+  return /\.m3u8(?:\?|$)/i.test(url)
+}
+
+async function isMpegTsFile(filePath: string): Promise<boolean> {
+  try {
+    const file = Bun.file(filePath)
+    const head = new Uint8Array(await file.slice(0, 1).arrayBuffer())
+    return head[0] === 0x47
+  } catch {
+    return false
+  }
+}
+
+async function remuxToMp4(inputFile: string): Promise<void> {
+  const ffmpeg = await resolveFfmpegBinary()
+  if (!ffmpeg) {
+    throw new Error("Downloaded MPEG-TS stream but ffmpeg is unavailable for remux")
+  }
+
+  const tmpFile = `${inputFile}.remux.mp4`
+  const proc = Bun.spawn(
+    [ffmpeg, "-hide_banner", "-y", "-i", inputFile, "-c", "copy", "-movflags", "+faststart", tmpFile],
+    { stdio: ["inherit", "inherit", "inherit"] }
+  )
+  const code = await proc.exited
+  if (code !== 0) {
+    throw new Error(`ffmpeg remux exited with code ${code}`)
+  }
+
+  await Bun.write(inputFile, Bun.file(tmpFile))
+  await Bun.file(tmpFile).delete()
+  console.log(`Remuxed MPEG-TS to MP4: ${inputFile}`)
 }
 
 export async function resolveYtDlpBinary(): Promise<string> {
@@ -53,10 +102,25 @@ export async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms))
 }
 
+async function resolveDownloadUrl(url: string): Promise<string> {
+  if (isUqloadEmbedUrl(url)) {
+    const resolved = await resolveUqloadEmbed(url)
+    console.log(`Resolved uqload embed -> ${resolved}`)
+    return resolved
+  }
+  if (isVidzyEmbed(url)) {
+    const resolved = await resolveVidzyEmbed(url)
+    console.log(`Resolved vidzy embed -> ${resolved}`)
+    return resolved
+  }
+  return url
+}
+
 export async function runYtDlp(url: string, outputFile: string, opts?: { noOverwrite?: boolean; noContinue?: boolean }): Promise<void> {
   const outDir = path.dirname(outputFile)
   await mkdir(outDir, { recursive: true })
   const bin = await resolveYtDlpBinary()
+  const downloadUrl = await resolveDownloadUrl(url)
   const args = [
     bin,
     ...getPluginDirsFlag(),
@@ -64,8 +128,23 @@ export async function runYtDlp(url: string, outputFile: string, opts?: { noOverw
     outputFile,
     "--merge-output-format",
     "mp4",
-    url,
   ]
+
+  if (isUqloadEmbedUrl(url) || downloadUrl.includes("uqload.")) {
+    args.push("--add-header", "Referer:https://uqload.is/", "--add-header", "Origin:https://uqload.is")
+  } else if (isVidzyEmbed(url) || downloadUrl.includes("vidzy.")) {
+    args.push("--add-header", "Referer:https://vidzy.cc/", "--add-header", "Origin:https://vidzy.cc")
+  }
+
+  const ffmpeg = await resolveFfmpegBinary()
+  if (ffmpeg) {
+    args.push("--ffmpeg-location", ffmpeg)
+  }
+  if (isHlsUrl(downloadUrl)) {
+    args.push("--downloader", "ffmpeg", "--hls-use-mpegts", "--remux-video", "mp4")
+  }
+
+  args.push(downloadUrl)
   if (opts?.noOverwrite) args.splice(3, 0, "--no-overwrites")
   if (opts?.noContinue) args.push("--no-continue")
   args.push("--no-part", "--restrict-filenames")
@@ -74,6 +153,10 @@ export async function runYtDlp(url: string, outputFile: string, opts?: { noOverw
   const code = await proc.exited
   if (code !== 0) {
     throw new Error(`${bin} exited with code ${code} for ${url}`)
+  }
+
+  if (await isMpegTsFile(outputFile)) {
+    await remuxToMp4(outputFile)
   }
 }
 
